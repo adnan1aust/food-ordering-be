@@ -36,10 +36,36 @@ const verifyToken = (req: Request, res: Response, next: NextFunction) => {
     next();
   } catch (error) {
     console.error("Token verification error:", error);
+
+    if (error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({
+        success: false,
+        message: "Token has expired. Please login again.",
+        error: "TOKEN_EXPIRED",
+      });
+    }
+
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token format.",
+        error: "INVALID_TOKEN_FORMAT",
+      });
+    }
+
+    if (error instanceof jwt.NotBeforeError) {
+      return res.status(401).json({
+        success: false,
+        message: "Token not active yet.",
+        error: "TOKEN_NOT_ACTIVE",
+      });
+    }
+
+    // Generic error for other cases
     return res.status(400).json({
       success: false,
-      message: "Invalid token",
-      error: "INVALID_TOKEN",
+      message: "Token verification failed.",
+      error: "TOKEN_VERIFICATION_FAILED",
     });
   }
 };
