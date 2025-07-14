@@ -3,6 +3,7 @@ import User from "../models/user";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { AuthenticatedUser } from "../types/auth";
+import { sendMagicLink } from "../utility/sendEmail";
 
 const register = async (req: Request, res: Response) => {
   try {
@@ -41,7 +42,7 @@ const login = async (req: Request, res: Response) => {
       email: user.email,
     },
     process.env.JWT_SECRET as string,
-    { expiresIn: "60s" },
+    { expiresIn: "3600" },
   );
 
   const refreshToken = jwt.sign(
@@ -122,4 +123,104 @@ const refreshToken = async (req: Request, res: Response) => {
   }
 };
 
-export default { register, login, refreshToken };
+const generateMagicLink = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required",
+        error: "EMAIL_REQUIRED",
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+        error: "USER_NOT_FOUND",
+      });
+    }
+
+    const token = jwt.sign(
+      { userId: user._id, email: user.email },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "15m" },
+    );
+
+    const magicLink = `${process.env.FRONTEND_URL}/auth/magic-link?token=${token}`;
+
+    const emailSent = await sendMagicLink(email, magicLink, user.userName);
+
+    if (!emailSent) {
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send magic link email",
+        error: "EMAIL_SEND_FAILED",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Magic link sent successfully",
+    });
+  } catch (error) {
+    console.error("Error generating magic link:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: "INTERNAL_ERROR",
+    });
+  }
+};
+
+const verifyMagicLink = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.query;
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ message: "Invalid or missing token!" });
+    }
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET as string,
+    ) as AuthenticatedUser;
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found!" });
+    }
+    const newToken = jwt.sign(
+      { userId: user._id, role: user.role, email: user.email },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "1h" },
+    );
+    const refreshToken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_REFRESH_SECRET || (process.env.JWT_SECRET as string),
+      { expiresIn: "7d" },
+    );
+    res.status(200).json({
+      message: "Magic link verified successfully",
+      token: newToken,
+      refreshToken,
+      expiresIn: 3600,
+      user: {
+        userName: user.userName,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Error verifying magic link:", error);
+    return res.status(500).json({ message: "Error verifying magic link!" });
+  }
+};
+
+export default {
+  register,
+  login,
+  refreshToken,
+  generateMagicLink,
+  verifyMagicLink,
+};
