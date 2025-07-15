@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Auth Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+    <h2>Google Auth Test</h2>
+    
+    <div id="g_id_onload"
+         data-client_id="306575693011-89vt6rio6em8g4pacagiud6fmgu4qcdv.apps.googleusercontent.com"
+         data-callback="handleCredentialResponse"
+         data-auto_prompt="false">
+    </div>
+    
+    <div class="g_id_signin" data-type="standard"></div>
+    
+    <script>
+        function handleCredentialResponse(response) {
+            const idToken = response.credential;
+            
+            // Log to console
+            console.log("=== ID TOKEN ===");
+            console.log(idToken);
+            console.log("=== END TOKEN ===");
+            
+            // Display on page
+            document.getElementById('token-display').innerText = idToken;
+            
+            // Make it copyable
+            document.getElementById('copy-btn').style.display = 'block';
+            
+            // Test your API
+            testAPI(idToken);
+        }
+        
+        function copyToken() {
+            const tokenText = document.getElementById('token-display').innerText;
+            navigator.clipboard.writeText(tokenText);
+            alert('Token copied to clipboard!');
+        }
+        
+        function testAPI(idToken) {
+            fetch('http://localhost:7000/auth/google', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    idToken: idToken
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('API Response:', data);
+                document.getElementById('api-response').innerText = JSON.stringify(data, null, 2);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('api-response').innerText = 'Error: ' + error.message;
+            });
+        }
+    </script>
+    
+    <h3>ID Token:</h3>
+    <div id="token-display" style="word-break: break-all; background: #f0f0f0; padding: 10px; margin: 10px 0; font-family: monospace; border: 1px solid #ccc;"></div>
+    
+    <button id="copy-btn" onclick="copyToken()" style="display: none; margin: 10px 0;">Copy Token</button>
+    
+    <h3>API Response:</h3>
+    <pre id="api-response" style="background: #f0f0f0; padding: 10px; margin: 10px 0; border: 1px solid #ccc;"></pre>
+</body>
+</html>

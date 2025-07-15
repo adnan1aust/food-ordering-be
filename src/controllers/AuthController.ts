@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { AuthenticatedUser } from "../types/auth";
 import { sendMagicLink } from "../utility/sendEmail";
+import { verifyGoogleToken } from "../utility/googleAuth";
 
 const register = async (req: Request, res: Response) => {
   try {
@@ -31,6 +32,13 @@ const login = async (req: Request, res: Response) => {
   if (!user) {
     return res.status(404).json({ message: "User not found!" });
   }
+
+  if (!user.password) {
+    return res.status(400).json({
+      message: "Missing password for user. Use Google login instead.",
+    });
+  }
+
   const isPasswordValid = await bcrypt.compare(password, user.password);
   if (!isPasswordValid) {
     return res.status(400).json({ message: "Invalid password!" });
@@ -217,10 +225,93 @@ const verifyMagicLink = async (req: Request, res: Response) => {
   }
 };
 
+const googleAuth = async (req: Request, res: Response) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({
+        success: false,
+        message: "Google ID token is required",
+        error: "ID_TOKEN_REQUIRED",
+      });
+    }
+
+    // Verify Google ID token
+    const googleUser = await verifyGoogleToken(idToken);
+
+    if (!googleUser) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Google ID token",
+        error: "INVALID_GOOGLE_TOKEN",
+      });
+    }
+
+    let user = await User.findOne({
+      $or: [{ email: googleUser.email }, { googleId: googleUser.sub }],
+    });
+
+    if (user) {
+      if (!user.googleId) {
+        user.googleId = googleUser.sub;
+        await user.save();
+      }
+    } else {
+      user = new User({
+        userName: googleUser.name,
+        email: googleUser.email,
+        googleId: googleUser.sub,
+        role: "user",
+      });
+
+      await user.save();
+    }
+
+    // Generate tokens (same payload as regular login)
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        role: user.role,
+        email: user.email,
+      },
+      process.env.JWT_SECRET as string,
+      { expiresIn: "3600" },
+    );
+
+    const refreshToken = jwt.sign(
+      { userId: user._id },
+      process.env.JWT_REFRESH_SECRET || (process.env.JWT_SECRET as string),
+      { expiresIn: "7d" },
+    );
+
+    // Same response format as regular login
+    res.status(200).json({
+      message: "Login successful",
+      token,
+      refreshToken,
+      expiresIn: 3600,
+      user: {
+        userName: user.userName,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Google authentication error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error during Google authentication",
+      error: "GOOGLE_AUTH_ERROR",
+    });
+  }
+};
+
 export default {
   register,
   login,
   refreshToken,
   generateMagicLink,
   verifyMagicLink,
+  googleAuth,
 };
